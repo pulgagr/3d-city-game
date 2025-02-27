@@ -279,7 +279,7 @@
         }
         
         createOtherPlayer(playerData) {
-            const otherPlayer = new OtherPlayer(this.scene);
+            const otherPlayer = new OtherPlayer(this.scene, playerData.nickname);
             otherPlayer.init();
             otherPlayer.mesh.position.copy(playerData.position);
             this.otherPlayers.set(playerData.id, otherPlayer);
@@ -856,6 +856,9 @@
             this.staminaRegenDelay = 5; // seconds to wait before regenerating
             this.staminaRegenTimer = 0; // current timer
             this.lastStaminaUse = 0; // time when stamina was last used
+
+            // Add label property
+            this.label = null;
         }
         
         init() {
@@ -958,6 +961,22 @@
             this.mesh.rotation.y = Math.PI;  // Rotate 180 degrees to face forward
             this.mesh.castShadow = true;
             this.scene.add(this.mesh);
+
+            // Create player label
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 256;
+            canvas.height = 74;
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const labelMaterial = new THREE.SpriteMaterial({ map: texture });
+            this.label = new THREE.Sprite(labelMaterial);
+            this.label.scale.set(2, 0.5, 1);
+            this.mesh.add(this.label);
+            this.label.position.y = 2.6;
+            
+
+            this.updateLabel();
         }
         
         update(deltaTime, input) {
@@ -1060,6 +1079,7 @@
         updateStaminaBar() {
             const percentage = (this.currentStamina / this.maxStamina) * 100;
             document.getElementById('staminaFill').style.width = `${percentage}%`;
+            this.updateLabel(); // Update the 3D label
         }
 
         takeDamage() {
@@ -1123,6 +1143,36 @@
                     this.updateStaminaBar();
                 }
             }
+        }
+
+        updateLabel() {
+            const canvas = this.label.material.map.image;
+            const context = canvas.getContext('2d');
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw background
+            context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw nickname
+            context.font = '32px Arial';
+            context.fillStyle = 'white';
+            context.textAlign = 'center';
+            context.fillText(this.nickname, canvas.width/2, 24);
+
+            // Draw stamina bar
+            const barWidth = 200;
+            const barHeight = 10;
+            const x = (canvas.width - barWidth) / 2;
+            const y = 35;
+
+            context.fillStyle = '#333';
+            context.fillRect(x, y, barWidth, barHeight);
+
+            context.fillStyle = '#ff3333';
+            context.fillRect(x, y, barWidth * (this.currentStamina / this.maxStamina), barHeight);
+
+            this.label.material.map.needsUpdate = true;
         }
     }
 
@@ -1414,23 +1464,77 @@
 
     // Add new OtherPlayer class
     class OtherPlayer {
-        constructor(scene) {
+        constructor(scene, nickname) {
             this.scene = scene;
+            this.nickname = nickname;
             this.mesh = null;
+            this.label = null;
+            this.staminaBar = null;
         }
         
         init() {
-            // Create simplified player mesh for other players
+            // Create player mesh
             const geometry = new THREE.BoxGeometry(1, 2, 0.5);
             const material = new THREE.MeshLambertMaterial({ color: 0xFF0000 });
             this.mesh = new THREE.Mesh(geometry, material);
             this.scene.add(this.mesh);
+
+            // Create player label
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 256;
+            canvas.height = 64;
+
+            // Create label texture
+            const texture = new THREE.CanvasTexture(canvas);
+            const labelMaterial = new THREE.SpriteMaterial({ map: texture });
+            this.label = new THREE.Sprite(labelMaterial);
+            this.label.scale.set(2, 0.5, 1);
+            this.mesh.add(this.label);
+            this.label.position.y = 2.5; // Position above player
+
+            // Update label texture
+            this.updateLabel(100); // Initial stamina value
+
+            
         }
-        
+
+        updateLabel(stamina) {
+            const canvas = this.label.material.map.image;
+            const context = canvas.getContext('2d');
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw background
+            context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw nickname
+            context.font = '32px Arial';
+            context.fillStyle = 'white';
+            context.textAlign = 'center';
+            context.fillText(this.nickname, canvas.width/2, 24);
+
+            // Draw stamina bar
+            const barWidth = 200;
+            const barHeight = 10;
+            const x = (canvas.width - barWidth) / 2;
+            const y = 35;
+
+            // Bar background
+            context.fillStyle = '#333';
+            context.fillRect(x, y, barWidth, barHeight);
+
+            // Stamina level
+            context.fillStyle = '#ff3333';
+            context.fillRect(x, y, barWidth * (stamina / 100), barHeight);
+
+            this.label.material.map.needsUpdate = true;
+        }
+
         remove() {
             this.scene.remove(this.mesh);
         }
-        
+
         updatePosition(position) {
             this.mesh.position.lerp(position, 0.1);
         }
