@@ -1,36 +1,36 @@
-const WebSocket = require('ws');
+const express = require('express');
 const http = require('http');
-const fs = require('fs');
+const WebSocket = require('ws');
 const path = require('path');
 
-// Create HTTP server
-const httpServer = http.createServer((req, res) => {
-    if (req.url === '/') {
-        // Serve the game HTML
-        fs.readFile(path.join(__dirname, '3d-city-game.html'), (err, data) => {
-            if (err) {
-                res.writeHead(500);
-                res.end('Error loading game');
-                return;
-            }
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(data);
-        });
-    }
+const app = express();
+
+// Serve static files from the 'public' directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve main game file
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Create WebSocket server attached to HTTP server
-const wss = new WebSocket.Server({ server: httpServer });
+// Create HTTP server
+const server = http.createServer(app);
 
+// WebSocket server
+const wss = new WebSocket.Server({ server });
+
+// Store connected clients
 const clients = new Map();
 let nextPlayerId = 1;
 
+// WebSocket connection handler
 wss.on('connection', (socket) => {
     console.log(`New connection attempt...`);
     let playerData = {
         id: nextPlayerId++,
         position: { x: -50, y: 2, z: -45 },
-        nickname: ''
+        nickname: '',
+        stamina: 5
     };
     
     clients.set(socket, playerData);
@@ -41,18 +41,15 @@ wss.on('connection', (socket) => {
 
         switch (data.type) {
             case 'init':
-                // Set player nickname
                 player.nickname = data.nickname;
                 console.log(`Player connected: ${player.nickname} (ID: ${player.id})`);
                 
-                // Send the new player their ID and current world state
                 socket.send(JSON.stringify({
                     type: 'init',
                     id: player.id,
                     players: Array.from(clients.values())
                 }));
 
-                // Broadcast new player to all other players
                 broadcast({
                     type: 'playerJoined',
                     player: player
@@ -60,9 +57,7 @@ wss.on('connection', (socket) => {
                 break;
 
             case 'position':
-                // Update player position
                 player.position = data.position;
-                // Broadcast position to all other players
                 broadcast({
                     type: 'playerMoved',
                     id: player.id,
@@ -71,36 +66,18 @@ wss.on('connection', (socket) => {
                 }, socket);
                 break;
 
-            case 'punch':
-                // Broadcast punch action
-                broadcast({
-                    type: 'playerPunched',
-                    id: player.id,
-                    position: data.position
-                }, socket);
-                break;
-
-            case 'destroyBuilding':
-                // Broadcast building destruction
-                broadcast({
-                    type: 'buildingDestroyed',
-                    position: data.position
-                });
-                break;
-
             case 'playerHit':
                 const targetSocket = Array.from(clients.entries())
                     .find(([_, p]) => p.id === data.targetId)?.[0];
                 
                 if (targetSocket) {
                     const targetPlayer = clients.get(targetSocket);
-                    targetPlayer.stamina = (targetPlayer.stamina || 5) - 1;
+                    targetPlayer.stamina--;
                     
-                    // Broadcast hit to all players
                     broadcast({
                         type: 'playerHit',
                         targetId: data.targetId,
-                        newStamina: targetPlayer.stamina * 20 // Convert to percentage
+                        newStamina: (targetPlayer.stamina / 5) * 100
                     });
                 }
                 break;
@@ -111,6 +88,10 @@ wss.on('connection', (socket) => {
                     playerId: data.playerId
                 });
                 break;
+
+            default:
+                broadcast(data, socket);
+                break;
         }
     });
 
@@ -118,7 +99,6 @@ wss.on('connection', (socket) => {
         const player = clients.get(socket);
         console.log(`Player disconnected: ${player.nickname} (ID: ${player.id})`);
         
-        // Broadcast player disconnection
         broadcast({
             type: 'playerLeft',
             id: player.id,
@@ -139,8 +119,11 @@ function broadcast(message, exclude = null) {
 }
 
 // Start server
-const PORT = 8080;
-httpServer.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
     console.log('Waiting for players to connect...');
-}); 
+});
+
+// Export the express app for Vercel
+module.exports = app; 

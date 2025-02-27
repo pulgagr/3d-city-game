@@ -212,12 +212,11 @@
         
         connectToServer() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.hostname}:8080`;
+            const wsUrl = `${protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
             this.socket = new WebSocket(wsUrl);
             
             this.socket.onopen = () => {
                 console.log('Connected to server');
-                // Send initial player data including nickname
                 this.socket.send(JSON.stringify({
                     type: 'init',
                     nickname: this.nickname
