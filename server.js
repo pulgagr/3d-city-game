@@ -87,6 +87,30 @@ wss.on('connection', (socket) => {
                     position: data.position
                 });
                 break;
+
+            case 'playerHit':
+                const targetSocket = Array.from(clients.entries())
+                    .find(([_, p]) => p.id === data.targetId)?.[0];
+                
+                if (targetSocket) {
+                    const targetPlayer = clients.get(targetSocket);
+                    targetPlayer.stamina = (targetPlayer.stamina || 5) - 1;
+                    
+                    // Broadcast hit to all players
+                    broadcast({
+                        type: 'playerHit',
+                        targetId: data.targetId,
+                        newStamina: targetPlayer.stamina * 20 // Convert to percentage
+                    });
+                }
+                break;
+                
+            case 'playerExploded':
+                broadcast({
+                    type: 'playerExploded',
+                    playerId: data.playerId
+                });
+                break;
         }
     });
 

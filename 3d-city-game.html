@@ -275,6 +275,29 @@
                 case 'buildingDestroyed':
                     this.city.destroyBuilding(data.position);
                     break;
+                    
+                case 'playerHit':
+                    if (data.targetId === this.playerId) {
+                        this.player.takeDamage();
+                    }
+                    const hitPlayer = this.otherPlayers.get(data.targetId);
+                    if (hitPlayer) {
+                        hitPlayer.updateLabel(data.newStamina);
+                    }
+                    break;
+                    
+                case 'playerExploded':
+                    const explodedPlayer = this.otherPlayers.get(data.playerId);
+                    if (explodedPlayer) {
+                        this.physics.createPlayerExplosion(explodedPlayer.mesh.position);
+                        explodedPlayer.mesh.visible = false;
+                        setTimeout(() => {
+                            explodedPlayer.mesh.visible = true;
+                            explodedPlayer.mesh.position.set(-50, 2, -45);
+                            explodedPlayer.updateLabel(100);
+                        }, 1000);
+                    }
+                    break;
             }
         }
         
@@ -707,6 +730,28 @@
             return false;
         }
         
+        checkPlayerPunchCollision(punchPosition, range, punchingPlayerId) {
+            // Check all players for collision with punch
+            for (const [id, player] of app.otherPlayers) {
+                if (id === punchingPlayerId) continue; // Skip punching player
+
+                const playerPos = player.mesh.position;
+                const dx = Math.abs(punchPosition.x - playerPos.x);
+                const dz = Math.abs(punchPosition.z - playerPos.z);
+                const dy = Math.abs(punchPosition.y - playerPos.y);
+
+                if (dx < 1.5 && dz < 1.5 && dy < 2) {
+                    // Hit detected
+                    app.socket.send(JSON.stringify({
+                        type: 'playerHit',
+                        targetId: id
+                    }));
+                    return true;
+                }
+            }
+            return false;
+        }
+        
         update(deltaTime) {
             for (const obj of this.objects) {
                 if (obj.useGravity) {
@@ -778,6 +823,64 @@
             
             // Remove original building
             building.mesh.parent.remove(building.mesh);
+            
+            // Animate fragments
+            const animate = () => {
+                if (fragments.children.length === 0) return;
+                
+                fragments.children.forEach((fragment, index) => {
+                    fragment.velocity.y -= 9.8 * 0.016; // gravity
+                    fragment.position.add(fragment.velocity.clone().multiplyScalar(0.016));
+                    fragment.rotation.x += fragment.rotationVelocity.x * 0.016;
+                    fragment.rotation.y += fragment.rotationVelocity.y * 0.016;
+                    fragment.rotation.z += fragment.rotationVelocity.z * 0.016;
+                    
+                    // Remove if too low
+                    if (fragment.position.y < -10) {
+                        fragments.remove(fragment);
+                    }
+                });
+                
+                requestAnimationFrame(animate);
+            };
+            
+            animate();
+        }
+
+        createPlayerExplosion(position) {
+            const pieces = 20;
+            const fragments = new THREE.Group();
+            
+            // Create fragments
+            for (let i = 0; i < pieces; i++) {
+                const size = Math.random() * 0.3 + 0.1;
+                const geometry = new THREE.BoxGeometry(size, size, size);
+                const material = new THREE.MeshLambertMaterial({ color: 0xff8866 });
+                const fragment = new THREE.Mesh(geometry, material);
+                
+                // Position around player center
+                fragment.position.copy(position);
+                fragment.position.x += (Math.random() - 0.5) * 2;
+                fragment.position.y += (Math.random() - 0.5) * 2;
+                fragment.position.z += (Math.random() - 0.5) * 2;
+                
+                // Add velocity
+                fragment.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 10,
+                    Math.random() * 15,
+                    (Math.random() - 0.5) * 10
+                );
+                
+                fragment.rotationVelocity = new THREE.Vector3(
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1
+                );
+                
+                fragments.add(fragment);
+            }
+            
+            app.scene.add(fragments);
             
             // Animate fragments
             const animate = () => {
@@ -1086,10 +1189,27 @@
             this.currentStamina--;
             this.updateStaminaBar();
             if (this.currentStamina <= 0) {
-                // Reset player position to in front of their house
-                this.mesh.position.set(-50, this.height/2, -45); // Moved forward 5 units from house
-                this.currentStamina = this.maxStamina;
-                this.updateStaminaBar();
+                // Create explosion effect
+                this.physics.createPlayerExplosion(this.mesh.position);
+                
+                // Hide player briefly
+                this.mesh.visible = false;
+                
+                // Reset position and stamina after a short delay
+                setTimeout(() => {
+                    this.mesh.position.set(-50, this.height/2, -45);
+                    this.currentStamina = this.maxStamina;
+                    this.updateStaminaBar();
+                    this.mesh.visible = true;
+                }, 1000);
+
+                // Notify other players
+                if (app.socket && app.socket.readyState === WebSocket.OPEN) {
+                    app.socket.send(JSON.stringify({
+                        type: 'playerExploded',
+                        playerId: app.playerId
+                    }));
+                }
             }
         }
 
@@ -1106,7 +1226,6 @@
             if (this.punchCooldown > 0) {
                 this.punchCooldown -= deltaTime;
                 if (this.punchCooldown <= 0) {
-                    // Reset arm position
                     this.armParts.rightArm.rotation.x = 0;
                     this.isPunching = false;
                 }
@@ -1114,30 +1233,27 @@
             }
 
             if (this.isPunching) {
-                // Check if enough stamina to punch
                 if (this.currentStamina < this.minStaminaToPunch) {
                     this.isPunching = false;
                     this.showMessage("Stamina too low!");
                     return;
                 }
 
-                // Perform punch animation
                 this.armParts.rightArm.rotation.x = -Math.PI / 2;
                 this.punchCooldown = this.punchDuration;
                 
-                // Check for hit detection
                 const punchDirection = new THREE.Vector3(0, 0, -1);
                 punchDirection.applyEuler(this.mesh.rotation);
                 
                 const punchOrigin = this.mesh.position.clone();
-                punchOrigin.y += 1; // Adjust to arm height
+                punchOrigin.y += 1;
                 
                 const punchRange = 2;
                 const hitPosition = punchOrigin.clone().add(punchDirection.multiplyScalar(punchRange));
                 
-                // Check for house collisions
-                if (this.physics.checkPunchCollision(hitPosition, punchRange)) {
-                    // Reduce stamina on successful hit
+                // Check for both building and player collisions
+                if (this.physics.checkPunchCollision(hitPosition, punchRange) || 
+                    this.physics.checkPlayerPunchCollision(hitPosition, punchRange, app.playerId)) {
                     this.currentStamina = Math.max(0, this.currentStamina - this.punchStaminaCost);
                     this.staminaRegenTimer = this.staminaRegenDelay;
                     this.updateStaminaBar();
