@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D City Game</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            font-family: Arial, sans-serif;
+        }
+        canvas { 
+            display: block; 
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #stamina {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            background-color: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #staminaBar {
+            width: 200px;
+            height: 20px;
+            background-color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #staminaFill {
+            width: 100%;
+            height: 100%;
+            background-color: #ff3333;
+            transition: width 0.3s;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            background-color: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 5px;
+            font-size: 24px;
+            display: none;
+        }
+        #loginScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        #loginForm {
+            background-color: white;
+            padding: 40px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        #loginForm input {
+            padding: 10px;
+            margin: 10px;
+            width: 200px;
+            font-size: 16px;
+        }
+
+        #loginForm button {
+            padding: 10px 20px;
+            margin-top: 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        #loginForm button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="loginScreen">
+        <div id="loginForm">
+            <h2>Enter Your Nickname</h2>
+            <input type="text" id="nicknameInput" placeholder="Nickname" maxlength="15" required>
+            <br>
+            <button onclick="startGame()">Start Game</button>
+        </div>
+    </div>
+    <div id="info">
+        <h3>3D City Game</h3>
+        <p id="fps">FPS: 0</p>
+    </div>
+    <div id="controls">
+        <p>Arrow Keys: Move | Space: Jump | Shift: Run</p>
+        <p>ASDW: Look Around | E: Punch | Q: Overview</p>
+    </div>
+    <div id="stamina">
+        <p>Stamina</p>
+        <div id="staminaBar">
+            <div id="staminaFill"></div>
+        </div>
+    </div>
+    <div id="message">Stamina too low!</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+    let app = null;
+
+    // Add global startGame function
+    function startGame() {
+        const nicknameInput = document.getElementById('nicknameInput');
+        const nickname = nicknameInput.value.trim();
+        
+        if (nickname.length < 3) {
+            alert('Nickname must be at least 3 characters long');
+            return;
+        }
+        
+        // Hide login screen
+        document.getElementById('loginScreen').style.display = 'none';
+        
+        // Initialize game with nickname
+        app = new Application();
+        app.start(nickname);
+    }
+
+    // Modify Application class
+    class Application {
+        constructor() {
+            // Core properties
+            this.scene = null;
+            this.camera = null;
+            this.renderer = null;
+            this.clock = new THREE.Clock();
+            this.deltaTime = 0;
+            
+            // Game objects
+            this.player = null;
+            this.city = null;
+            this.input = null;
+            this.physics = null;
+            
+            // Camera control
+            this.cameraOffset = new THREE.Vector3(0, 5, 10);
+            this.cameraRotation = new THREE.Euler(0, 0, 0);
+            this.lookSpeed = 2.0;
+            this.overviewCamera = {
+                offset: new THREE.Vector3(0, 90, 0),
+                target: new THREE.Vector3(0, 0, 0)
+            };
+            
+            // FPS counter
+            this.fpsCounter = {
+                lastTime: 0,
+                frames: 0,
+                update: (time) => {
+                    this.fpsCounter.frames++;
+                    if (time - this.fpsCounter.lastTime >= 1000) {
+                        document.getElementById('fps').textContent = `FPS: ${this.fpsCounter.frames}`;
+                        this.fpsCounter.frames = 0;
+                        this.fpsCounter.lastTime = time;
+                    }
+                }
+            };
+            
+            // Multiplayer properties
+            this.socket = null;
+            this.playerId = null;
+            this.otherPlayers = new Map();
+            
+            // Add nickname property
+            this.nickname = '';
+        }
+        
+        start(nickname) {
+            this.nickname = nickname;
+            
+            // Connect to server first
+            this.connectToServer();
+        }
+        
+        connectToServer() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.hostname}:8080`;
+            this.socket = new WebSocket(wsUrl);
+            
+            this.socket.onopen = () => {
+                console.log('Connected to server');
+                // Send initial player data including nickname
+                this.socket.send(JSON.stringify({
+                    type: 'init',
+                    nickname: this.nickname
+                }));
+            };
+            
+            this.socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                this.handleServerMessage(data);
+            };
+            
+            this.socket.onclose = () => {
+                console.log('Disconnected from server');
+                setTimeout(() => this.connectToServer(), 5000);
+            };
+
+            this.socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        handleServerMessage(data) {
+            switch (data.type) {
+                case 'init':
+                    this.playerId = data.id;
+                    // Initialize game only after receiving server confirmation
+                    if (!this.scene) {
+                        this.init();
+                        this.animate();
+                    }
+                    // Create other existing players
+                    data.players.forEach(player => {
+                        if (player.id !== this.playerId) {
+                            this.createOtherPlayer(player);
+                        }
+                    });
+                    break;
+                    
+                case 'playerJoined':
+                    this.createOtherPlayer(data.player);
+                    break;
+                    
+                case 'playerLeft':
+                    this.removeOtherPlayer(data.id);
+                    break;
+                    
+                case 'playerMoved':
+                    this.updateOtherPlayer(data.id, data.position);
+                    break;
+                    
+                case 'playerPunched':
+                    this.showOtherPlayerPunch(data.id);
+                    break;
+                    
+                case 'buildingDestroyed':
+                    this.city.destroyBuilding(data.position);
+                    break;
+            }
+        }
+        
+        createOtherPlayer(playerData) {
+            const otherPlayer = new OtherPlayer(this.scene);
+            otherPlayer.init();
+            otherPlayer.mesh.position.copy(playerData.position);
+            this.otherPlayers.set(playerData.id, otherPlayer);
+        }
+        
+        removeOtherPlayer(id) {
+            const player = this.otherPlayers.get(id);
+            if (player) {
+                player.remove();
+                this.otherPlayers.delete(id);
+            }
+        }
+        
+        updateOtherPlayer(id, position) {
+            const player = this.otherPlayers.get(id);
+            if (player) {
+                player.updatePosition(position);
+            }
+        }
+        
+        showOtherPlayerPunch(id) {
+            // Implementation needed
+        }
+
+        init() {
+            // Initialize core systems
+            this.initRenderer();
+            this.initScene();
+            this.initCamera();
+            this.initLighting();
+            
+            // Initialize game systems
+            this.input = new InputSystem();
+            this.physics = new PhysicsSystem();
+            
+            // Create game objects - double city size
+            this.city = new CityGenerator(this.scene, this.physics);
+            this.city.generate(30, 30); // Doubled from 15x15 to 30x30
+            
+            this.player = new Player(this.scene, this.physics);
+            this.player.init();
+            this.player.mesh.position.set(-50, this.player.height/2, -45);
+            
+            // Set up event listeners
+            window.addEventListener('resize', () => this.onWindowResize());
+        }
+        
+        initRenderer() {
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.shadowMap.enabled = true;
+            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(this.renderer.domElement);
+        }
+        
+        initScene() {
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x87CEEB); // Sky blue
+            this.scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
+        }
+        
+        initCamera() {
+            this.camera = new THREE.PerspectiveCamera(
+                75, window.innerWidth / window.innerHeight, 0.1, 1000
+            );
+            this.camera.position.set(0, 10, 15);
+            this.camera.lookAt(0, 5, 0);
+        }
+        
+        initLighting() {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.9);
+            this.scene.add(ambientLight);
+            
+            // Directional light (sun)
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+            sunLight.position.set(50, 50, 50);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 500;
+            sunLight.shadow.camera.left = -100;
+            sunLight.shadow.camera.right = 100;
+            sunLight.shadow.camera.top = 100;
+            sunLight.shadow.camera.bottom = -100;
+            this.scene.add(sunLight);
+        }
+        
+        onWindowResize() {
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+            this.camera.updateProjectionMatrix();
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        animate(time) {
+            requestAnimationFrame((t) => this.animate(t));
+            
+            // Calculate delta time
+            this.deltaTime = this.clock.getDelta();
+            
+            // Update FPS counter
+            this.fpsCounter.update(time);
+            
+            // Update game systems
+            this.input.update();
+            this.physics.update(this.deltaTime);
+            
+            // Update camera look direction based on arrow keys
+            this.updateCameraLook();
+            
+            // Update player movement based on camera direction
+            this.player.updateWithCameraDirection(this.deltaTime, this.input, this.cameraRotation);
+            
+            // Update camera to follow player
+            this.updateCamera();
+            
+            // Send player position to server
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({
+                    type: 'position',
+                    position: this.player.mesh.position
+                }));
+            }
+            
+            // Render scene
+            this.renderer.render(this.scene, this.camera);
+        }
+        
+        updateCamera() {
+            if (this.input.keys.overview) {
+                // Update overview camera position to follow player
+                if (this.player && this.player.mesh) {
+                    const playerPos = this.player.mesh.position.clone();
+                    const overviewPos = playerPos.clone().add(this.overviewCamera.offset);
+                    this.camera.position.lerp(overviewPos, 0.05);
+                    this.camera.lookAt(playerPos);
+                }
+                return;
+            }
+
+            if (this.player && this.player.mesh) {
+                const playerPos = this.player.mesh.position;
+                
+                // Calculate rotated camera offset
+                const rotatedOffset = this.cameraOffset.clone();
+                rotatedOffset.applyEuler(new THREE.Euler(0, this.cameraRotation.y, 0));
+                
+                // Position camera behind player
+                const cameraPosition = new THREE.Vector3();
+                cameraPosition.copy(playerPos).add(rotatedOffset);
+                
+                this.camera.position.lerp(cameraPosition, 0.05);
+                
+                // Look target is player position plus offset for height
+                const lookTarget = new THREE.Vector3();
+                lookTarget.copy(playerPos).add(new THREE.Vector3(0, 2, 0));
+                
+                // Create a temporary vector to calculate the camera look direction
+                const lookDirection = new THREE.Vector3();
+                lookDirection.subVectors(lookTarget, this.camera.position);
+                lookDirection.normalize();
+                
+                // Apply pitch rotation
+                const pitchMatrix = new THREE.Matrix4();
+                pitchMatrix.makeRotationX(this.cameraRotation.x);
+                lookDirection.applyMatrix4(pitchMatrix);
+                
+                // Calculate the new look target
+                const newLookTarget = new THREE.Vector3();
+                newLookTarget.copy(this.camera.position).add(lookDirection.multiplyScalar(10));
+                
+                this.camera.lookAt(newLookTarget);
+            }
+        }
+        
+        updateCameraLook() {
+            // Adjust camera rotation based on arrow keys
+            if (this.input.keys.forward) {
+                this.cameraRotation.x -= this.lookSpeed * this.deltaTime;
+            }
+            if (this.input.keys.backward) {
+                this.cameraRotation.x += this.lookSpeed * this.deltaTime;
+            }
+            if (this.input.keys.lookLeft) {
+                this.cameraRotation.y += this.lookSpeed * this.deltaTime;
+                // Rotate player body to match camera direction
+                this.player.rotateBody(this.cameraRotation.y);
+            }
+            if (this.input.keys.lookRight) {
+                this.cameraRotation.y -= this.lookSpeed * this.deltaTime;
+                // Rotate player body to match camera direction
+                this.player.rotateBody(this.cameraRotation.y);
+            }
+            
+            // Clamp vertical rotation to prevent flipping
+            this.cameraRotation.x = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, this.cameraRotation.x));
+        }
+    }
+
+    // Input system for handling keyboard controls
+    class InputSystem {
+        constructor() {
+            this.keys = {
+                forward: false,
+                backward: false,
+                left: false,
+                right: false,
+                jump: false,
+                run: false,
+                lookUp: false,
+                lookDown: false,
+                lookLeft: false,
+                lookRight: false,
+                overview: false,
+                punch: false
+            };
+            
+            // Set up event listeners
+            document.addEventListener('keydown', (e) => this.onKeyDown(e));
+            document.addEventListener('keyup', (e) => this.onKeyUp(e));
+        }
+        
+        onKeyDown(event) {
+            switch (event.code) {
+                case 'KeyW':
+                    this.keys.forward = true;
+                    break;
+                case 'KeyS':
+                    this.keys.backward = true;
+                    break;
+                case 'KeyA':
+                    this.keys.left = true;
+                    break;
+                case 'KeyD':
+                    this.keys.right = true;
+                    break;
+                case 'Space':
+                    this.keys.jump = true;
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    this.keys.run = true;
+                    break;
+                case 'ArrowUp':
+                    this.keys.lookUp = true;
+                    break;
+                case 'ArrowDown':
+                    this.keys.lookDown = true;
+                    break;
+                case 'ArrowLeft':
+                    this.keys.lookLeft = true;
+                    break;
+                case 'ArrowRight':
+                    this.keys.lookRight = true;
+                    break;
+                case 'KeyQ':
+                    this.keys.overview = true;
+                    break;
+                case 'KeyE':
+                    this.keys.punch = true;
+                    break;
+            }
+        }
+        
+        onKeyUp(event) {
+            switch (event.code) {
+                case 'KeyW':
+                    this.keys.forward = false;
+                    break;
+                case 'KeyS':
+                    this.keys.backward = false;
+                    break;
+                case 'KeyA':
+                    this.keys.left = false;
+                    break;
+                case 'KeyD':
+                    this.keys.right = false;
+                    break;
+                case 'Space':
+                    this.keys.jump = false;
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    this.keys.run = false;
+                    break;
+                case 'ArrowUp':
+                    this.keys.lookUp = false;
+                    break;
+                case 'ArrowDown':
+                    this.keys.lookDown = false;
+                    break;
+                case 'ArrowLeft':
+                    this.keys.lookLeft = false;
+                    break;
+                case 'ArrowRight':
+                    this.keys.lookRight = false;
+                    break;
+                case 'KeyQ':
+                    this.keys.overview = false;
+                    break;
+                case 'KeyE':
+                    this.keys.punch = false;
+                    break;
+            }
+        }
+        
+        update() {
+            // Reserved for future input processing if needed
+        }
+    }
+
+    // Simple physics system
+    class PhysicsSystem {
+        constructor() {
+            this.gravity = 9.8;
+            this.objects = [];
+            this.ground = 0.2; // Y position of ground
+            this.buildings = []; // Array to store building collision boxes
+            this.destructibleBuildings = new Map(); // Track building health
+        }
+        
+        register(object) {
+            if (!this.objects.includes(object)) {
+                this.objects.push(object);
+            }
+        }
+        
+        unregister(object) {
+            const index = this.objects.indexOf(object);
+            if (index !== -1) {
+                this.objects.splice(index, 1);
+            }
+        }
+        
+        registerBuilding(position, width, depth, height, isDestructible = true, mesh = null) {
+            const building = {
+                position: position,
+                width: width,
+                depth: depth,
+                height: height,
+                health: isDestructible ? 2 : Infinity, // Houses take 2 hits to destroy
+                mesh: mesh  // Store the mesh reference
+            };
+            
+            this.buildings.push(building);
+            if (isDestructible) {
+                this.destructibleBuildings.set(building, building.health);
+            }
+        }
+        
+        checkBuildingCollisions(object) {
+            const pos = object.mesh.position;
+            const radius = Math.max(object.width, object.depth) / 2;
+
+            for (const building of this.buildings) {
+                const dx = Math.abs(pos.x - building.position.x);
+                const dz = Math.abs(pos.z - building.position.z);
+                const dy = pos.y - building.position.y;
+                
+                // Add small buffer for smoother collision
+                const buffer = 0.2;
+                
+                // Check horizontal collision
+                if (dx < building.width/2 + radius + buffer && 
+                    dz < building.depth/2 + radius + buffer) {
+                    
+                    // Check vertical collision
+                    if (dy < building.height && dy > -building.height/2) {
+                        // If player is above building height, let them walk on it
+                        if (pos.y >= building.position.y + building.height) {
+                            pos.y = building.position.y + building.height;
+                            object.velocity.y = 0;
+                            object.isGrounded = true;
+                            return false;
+                        }
+
+                        // Otherwise push player out horizontally
+                        const overlapX = building.width/2 + radius + buffer - dx;
+                        const overlapZ = building.depth/2 + radius + buffer - dz;
+
+                        if (overlapX < overlapZ) {
+                            pos.x = pos.x > building.position.x ? 
+                                building.position.x + building.width/2 + radius + buffer :
+                                building.position.x - building.width/2 - radius - buffer;
+                        } else {
+                            pos.z = pos.z > building.position.z ?
+                                building.position.z + building.depth/2 + radius + buffer :
+                                building.position.z - building.depth/2 - radius - buffer;
+                        }
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        checkPunchCollision(punchPosition, range) {
+            for (const building of this.buildings) {
+                if (!this.destructibleBuildings.has(building)) continue;
+
+                const dx = Math.abs(punchPosition.x - building.position.x);
+                const dz = Math.abs(punchPosition.z - building.position.z);
+                
+                if (dx < building.width/2 + range && dz < building.depth/2 + range) {
+                    // Hit detected
+                    const health = this.destructibleBuildings.get(building);
+                    if (health > 0) {
+                        this.destructibleBuildings.set(building, health - 1);
+                        if (health - 1 <= 0) {
+                            // Create explosion effect
+                            this.createExplosion(building);
+                            
+                            // Remove building from physics
+                            const index = this.buildings.indexOf(building);
+                            if (index > -1) {
+                                this.buildings.splice(index, 1);
+                            }
+                            this.destructibleBuildings.delete(building);
+                        }
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        update(deltaTime) {
+            for (const obj of this.objects) {
+                if (obj.useGravity) {
+                    // Apply gravity
+                    obj.velocity.y -= this.gravity * deltaTime;
+                    
+                    // Store original position
+                    const originalPos = obj.mesh.position.clone();
+                    
+                    // Update position based on velocity
+                    obj.mesh.position.x += obj.velocity.x * deltaTime;
+                    obj.mesh.position.y += obj.velocity.y * deltaTime;
+                    obj.mesh.position.z += obj.velocity.z * deltaTime;
+                    
+                    // Check building collisions
+                    if (this.checkBuildingCollisions(obj)) {
+                        // If collision occurred, reset velocity
+                        obj.velocity.x = 0;
+                        obj.velocity.z = 0;
+                    }
+                    
+                    // Ground collision
+                    if (obj.mesh.position.y < this.ground + obj.height / 2) {
+                        obj.mesh.position.y = this.ground + obj.height / 2;
+                        obj.velocity.y = 0;
+                        obj.isGrounded = true;
+                    } else {
+                        obj.isGrounded = false;
+                    }
+                }
+            }
+        }
+
+        createExplosion(building) {
+            const pieces = 40;
+            const buildingPos = building.mesh.position;
+            const fragments = new THREE.Group();
+            
+            // Create fragments
+            for (let i = 0; i < pieces; i++) {
+                const size = Math.random() * 0.5 + 0.2;
+                const geometry = new THREE.BoxGeometry(size, size, size);
+                const material = building.mesh.material.clone();
+                const fragment = new THREE.Mesh(geometry, material);
+                
+                // Position around building center
+                fragment.position.copy(buildingPos);
+                fragment.position.x += (Math.random() - 0.5) * 2;
+                fragment.position.y += (Math.random() - 0.5) * 2;
+                fragment.position.z += (Math.random() - 0.5) * 2;
+                
+                // Add velocity
+                fragment.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 10,
+                    Math.random() * 15,
+                    (Math.random() - 0.5) * 10
+                );
+                
+                fragment.rotationVelocity = new THREE.Vector3(
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1
+                );
+                
+                fragments.add(fragment);
+            }
+            
+            building.mesh.parent.add(fragments);
+            
+            // Remove original building
+            building.mesh.parent.remove(building.mesh);
+            
+            // Animate fragments
+            const animate = () => {
+                if (fragments.children.length === 0) return;
+                
+                fragments.children.forEach((fragment, index) => {
+                    fragment.velocity.y -= 9.8 * 0.016; // gravity
+                    fragment.position.add(fragment.velocity.clone().multiplyScalar(0.016));
+                    fragment.rotation.x += fragment.rotationVelocity.x * 0.016;
+                    fragment.rotation.y += fragment.rotationVelocity.y * 0.016;
+                    fragment.rotation.z += fragment.rotationVelocity.z * 0.016;
+                    
+                    // Remove if too low
+                    if (fragment.position.y < -10) {
+                        fragments.remove(fragment);
+                    }
+                });
+                
+                requestAnimationFrame(animate);
+            };
+            
+            animate();
+        }
+    }
+
+    // Player class
+    class Player {
+        constructor(scene, physics) {
+            this.scene = scene;
+            this.physics = physics;
+            
+            // Player properties
+            this.mesh = null;
+            this.height = 2;  // Halved from 4
+            this.width = 0.55;  // Halved from 1.1
+            this.depth = 0.3;  // Halved from 0.6
+            this.moveSpeed = 5;
+            this.runSpeed = 15;
+            this.jumpForce = 15; // Increased from 10 for higher jumps
+            
+            // Physics properties
+            this.velocity = new THREE.Vector3(0, 0, 0);
+            this.useGravity = true;
+            this.isGrounded = false;
+            
+            // Register with physics system
+            this.physics.register(this);
+
+            // Add animation properties
+            this.legParts = {
+                leftThigh: null,
+                rightThigh: null,
+                leftLeg: null,
+                rightLeg: null
+            };
+            this.animationTime = 0;
+            this.walkingSpeed = 5; // Controls leg swing speed
+
+            // Add punch and stamina properties
+            this.isPunching = false;
+            this.punchCooldown = 0;
+            this.punchDuration = 0.3;
+            this.maxStamina = 5;
+            this.currentStamina = this.maxStamina;
+            this.staminaRegenRate = 0.1; // Reduced from 0.5 to make regeneration slower
+            this.punchStaminaCost = 0.5; // Stamina cost per punch
+            this.minStaminaToPunch = 2; // Minimum stamina needed to punch (40%)
+            
+            // Store arm references
+            this.armParts = {
+                leftArm: null,
+                rightArm: null
+            };
+
+            // Add stamina regeneration delay properties
+            this.staminaRegenDelay = 5; // seconds to wait before regenerating
+            this.staminaRegenTimer = 0; // current timer
+            this.lastStaminaUse = 0; // time when stamina was last used
+        }
+        
+        init() {
+            // Create bodybuilder character
+            this.mesh = new THREE.Group();
+            
+            // Materials
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xff8866,
+                roughness: 0.5,
+                metalness: 0.1
+            });
+            
+            const detailMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x222222,
+                roughness: 0.5,
+                metalness: 0.1
+            });
+            
+            const muscleMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xff7755,
+                roughness: 0.7,
+                metalness: 0.1
+            });
+            
+            // Helper function for creating blocks - halved all dimensions
+            const createBox = (width, height, depth, material, x = 0, y = 0, z = 0) => {
+                const geometry = new THREE.BoxGeometry(width, height, depth);
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                return mesh;
+            };
+            
+            // Head - halved dimensions and positions
+            const head = createBox(0.6, 0.6, 0.6, bodyMaterial, 0, 1.85, 0);
+            this.mesh.add(head);
+            
+            // Eyes - halved dimensions and positions, reversed Z position
+            const leftEye = createBox(0.1, 0.1, 0.05, detailMaterial, -0.15, 1.9, -0.325);
+            const rightEye = createBox(0.1, 0.1, 0.05, detailMaterial, 0.15, 1.9, -0.325);
+            this.mesh.add(leftEye, rightEye);
+            
+            // Torso - halved dimensions and positions
+            const torso = createBox(1.1, 0.9, 0.6, muscleMaterial, 0, 1.05, 0);
+            this.mesh.add(torso);
+            
+            // Abs - halved dimensions and positions, reversed Z position
+            const upperAbs = createBox(0.6, 0.15, 0.05, detailMaterial, 0, 1.15, -0.325);
+            const lowerAbs = createBox(0.6, 0.15, 0.05, detailMaterial, 0, 0.95, -0.325);
+            this.mesh.add(upperAbs, lowerAbs);
+            
+            // Belt - halved dimensions and positions
+            const belt = createBox(1.1, 0.15, 0.65, detailMaterial, 0, 0.525, 0);
+            this.mesh.add(belt);
+            
+            // Arms - halved dimensions and positions
+            const leftShoulder = createBox(0.4, 0.4, 0.4, bodyMaterial, -0.75, 1.3, 0);
+            const rightShoulder = createBox(0.4, 0.4, 0.4, bodyMaterial, 0.75, 1.3, 0);
+            const leftUpperArm = createBox(0.35, 0.5, 0.35, muscleMaterial, -0.75, 0.85, 0);
+            const rightUpperArm = createBox(0.35, 0.5, 0.35, muscleMaterial, 0.75, 0.85, 0);
+            const leftForearm = createBox(0.3, 0.5, 0.3, bodyMaterial, -0.75, 0.35, 0);
+            const rightForearm = createBox(0.3, 0.5, 0.3, bodyMaterial, 0.75, 0.35, 0);
+            this.mesh.add(leftShoulder, rightShoulder, leftUpperArm, rightUpperArm, leftForearm, rightForearm);
+            
+            // Legs - halved dimensions and positions
+            const leftThigh = createBox(0.4, 0.6, 0.4, muscleMaterial, -0.3, -0.15, 0);
+            const rightThigh = createBox(0.4, 0.6, 0.4, muscleMaterial, 0.3, -0.15, 0);
+            const leftLeg = createBox(0.35, 0.55, 0.35, bodyMaterial, -0.3, -0.75, 0);
+            const rightLeg = createBox(0.35, 0.55, 0.35, bodyMaterial, 0.3, -0.75, 0);
+            const leftFoot = createBox(0.4, 0.15, 0.5, detailMaterial, -0.3, -1.1, 0.05);
+            const rightFoot = createBox(0.4, 0.15, 0.5, detailMaterial, 0.3, -1.1, 0.05);
+            this.mesh.add(leftThigh, rightThigh, leftLeg, rightLeg, leftFoot, rightFoot);
+            
+            // Store leg references when creating them
+            this.legParts.leftThigh = leftThigh;
+            this.legParts.rightThigh = rightThigh;
+            this.legParts.leftLeg = leftLeg;
+            this.legParts.rightLeg = rightLeg;
+
+            // Store arm references when creating them
+            const leftArm = new THREE.Group();
+            leftArm.add(leftShoulder);
+            leftArm.add(leftUpperArm);
+            leftArm.add(leftForearm);
+            
+            const rightArm = new THREE.Group();
+            rightArm.add(rightShoulder);
+            rightArm.add(rightUpperArm);
+            rightArm.add(rightForearm);
+            
+            this.mesh.add(leftArm);
+            this.mesh.add(rightArm);
+            
+            this.armParts.leftArm = leftArm;
+            this.armParts.rightArm = rightArm;
+
+            // Position the entire character and rotate 180 degrees to face forward
+            this.mesh.position.set(0, this.height / 2, 0);
+            this.mesh.rotation.y = Math.PI;  // Rotate 180 degrees to face forward
+            this.mesh.castShadow = true;
+            this.scene.add(this.mesh);
+        }
+        
+        update(deltaTime, input) {
+            // Legacy method kept for compatibility
+            this.updateWithCameraDirection(deltaTime, input, new THREE.Euler(0, 0, 0));
+        }
+        
+        updateWithCameraDirection(deltaTime, input, cameraRotation) {
+            // Movement direction based on camera orientation
+            const moveDirection = new THREE.Vector3(0, 0, 0);
+            
+            // Forward/backward movement aligned with camera direction
+            if (input.keys.lookUp) {
+                moveDirection.z -= Math.cos(cameraRotation.y);
+                moveDirection.x -= Math.sin(cameraRotation.y);
+            }
+            if (input.keys.lookDown) {
+                moveDirection.z += Math.cos(cameraRotation.y);
+                moveDirection.x += Math.sin(cameraRotation.y);
+            }
+            
+            // Left/right movement perpendicular to camera direction
+            if (input.keys.left) {
+                moveDirection.x -= Math.cos(cameraRotation.y);
+                moveDirection.z += Math.sin(cameraRotation.y);
+            }
+            if (input.keys.right) {
+                moveDirection.x += Math.cos(cameraRotation.y);
+                moveDirection.z -= Math.sin(cameraRotation.y);
+            }
+            
+            // Normalize movement direction
+            if (moveDirection.length() > 0) {
+                moveDirection.normalize();
+                
+                // Apply running or walking speed
+                const speed = input.keys.run ? this.runSpeed : this.moveSpeed;
+                moveDirection.multiplyScalar(speed);
+                
+                // Apply horizontal movement
+                this.velocity.x = moveDirection.x;
+                this.velocity.z = moveDirection.z;
+            } else {
+                // Slow down when not moving
+                this.velocity.x = 0;
+                this.velocity.z = 0;
+            }
+            
+            // Jump if grounded
+            if (input.keys.jump && this.isGrounded) {
+                this.velocity.y = this.jumpForce;
+                this.isGrounded = false;
+            }
+
+            // Animate legs when moving
+            if (moveDirection.length() > 0) {
+                this.animationTime += deltaTime * this.walkingSpeed * (input.keys.run ? 2 : 1);
+                
+                // Swing legs back and forth
+                const swingAngle = Math.sin(this.animationTime) * 0.5;
+                
+                this.legParts.leftThigh.rotation.x = -swingAngle;
+                this.legParts.rightThigh.rotation.x = swingAngle;
+                this.legParts.leftLeg.rotation.x = Math.max(0, swingAngle);
+                this.legParts.rightLeg.rotation.x = Math.max(0, -swingAngle);
+            } else {
+                // Reset legs to neutral position when standing still
+                this.legParts.leftThigh.rotation.x = 0;
+                this.legParts.rightThigh.rotation.x = 0;
+                this.legParts.leftLeg.rotation.x = 0;
+                this.legParts.rightLeg.rotation.x = 0;
+            }
+
+            // Handle punching
+            if (input.keys.punch && !this.isPunching && this.punchCooldown <= 0) {
+                this.isPunching = true;
+            }
+            this.punch(deltaTime);
+
+            // Update stamina regeneration timer
+            if (this.staminaRegenTimer > 0) {
+                this.staminaRegenTimer -= deltaTime;
+            }
+
+            // Regenerate stamina only after delay
+            if (this.currentStamina < this.maxStamina && this.staminaRegenTimer <= 0) {
+                this.currentStamina = Math.min(
+                    this.maxStamina, 
+                    this.currentStamina + this.staminaRegenRate * deltaTime
+                );
+                this.updateStaminaBar();
+            }
+        }
+        
+        rotateBody(angle) {
+            // Rotate the player's body to match the camera direction
+            this.mesh.rotation.y = angle;
+        }
+
+        updateStaminaBar() {
+            const percentage = (this.currentStamina / this.maxStamina) * 100;
+            document.getElementById('staminaFill').style.width = `${percentage}%`;
+        }
+
+        takeDamage() {
+            this.currentStamina--;
+            this.updateStaminaBar();
+            if (this.currentStamina <= 0) {
+                // Reset player position to in front of their house
+                this.mesh.position.set(-50, this.height/2, -45); // Moved forward 5 units from house
+                this.currentStamina = this.maxStamina;
+                this.updateStaminaBar();
+            }
+        }
+
+        showMessage(text, duration = 2000) {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = text;
+            messageEl.style.display = 'block';
+            setTimeout(() => {
+                messageEl.style.display = 'none';
+            }, duration);
+        }
+
+        punch(deltaTime) {
+            if (this.punchCooldown > 0) {
+                this.punchCooldown -= deltaTime;
+                if (this.punchCooldown <= 0) {
+                    // Reset arm position
+                    this.armParts.rightArm.rotation.x = 0;
+                    this.isPunching = false;
+                }
+                return;
+            }
+
+            if (this.isPunching) {
+                // Check if enough stamina to punch
+                if (this.currentStamina < this.minStaminaToPunch) {
+                    this.isPunching = false;
+                    this.showMessage("Stamina too low!");
+                    return;
+                }
+
+                // Perform punch animation
+                this.armParts.rightArm.rotation.x = -Math.PI / 2;
+                this.punchCooldown = this.punchDuration;
+                
+                // Check for hit detection
+                const punchDirection = new THREE.Vector3(0, 0, -1);
+                punchDirection.applyEuler(this.mesh.rotation);
+                
+                const punchOrigin = this.mesh.position.clone();
+                punchOrigin.y += 1; // Adjust to arm height
+                
+                const punchRange = 2;
+                const hitPosition = punchOrigin.clone().add(punchDirection.multiplyScalar(punchRange));
+                
+                // Check for house collisions
+                if (this.physics.checkPunchCollision(hitPosition, punchRange)) {
+                    // Reduce stamina on successful hit
+                    this.currentStamina = Math.max(0, this.currentStamina - this.punchStaminaCost);
+                    this.staminaRegenTimer = this.staminaRegenDelay;
+                    this.updateStaminaBar();
+                }
+            }
+        }
+    }
+
+    // City generator to create buildings and environment
+    class CityGenerator {
+        constructor(scene, physics) {
+            this.scene = scene;
+            this.physics = physics;
+            this.buildings = [];
+            this.roads = [];
+            this.blockSize = 10;
+            this.roadWidth = 10;
+            this.template = null;
+        }
+        
+        generate(width, height) {
+            if (this.template) {
+                // If template exists, use it
+                this.scene.add(this.template.clone());
+                return;
+            }
+            
+            // Create template group
+            this.template = new THREE.Group();
+            
+            // Create ground
+            const ground = this.createGround(width, height);
+            this.template.add(ground);
+            
+            // Create player's house (before other buildings)
+            const spawnHouse = this.createPlayerHouse(-50, -50); // Offset from center
+            this.template.add(spawnHouse);
+            
+            // Create buildings in a grid
+            for (let x = 0; x < width; x++) {
+                for (let z = 0; z < height; z++) {
+                    // Skip if this is a road position or near player's house
+                    if (x % 3 === 0 || z % 3 === 0) continue;
+                    
+                    const posX = (x - width / 2) * (this.blockSize + this.roadWidth);
+                    const posZ = (z - height / 2) * (this.blockSize + this.roadWidth);
+                    
+                    // Skip if too close to player's house
+                    if (Math.abs(posX + 50) < 20 && Math.abs(posZ + 50) < 20) continue;
+                    
+                    // Use deterministic building placement based on position
+                    const isSkyscraper = ((x * 7 + z * 13) % 10) > 7; // Deterministic but seems random
+                    
+                    const building = isSkyscraper ? 
+                        this.createSkyscraper(posX, posZ) : 
+                        this.createHouse(posX, posZ);
+                        
+                    this.template.add(building);
+                }
+            }
+            
+            // Create roads
+            const roads = this.createRoads(width, height);
+            roads.forEach(road => this.template.add(road));
+            
+            // Add template to scene
+            this.scene.add(this.template);
+        }
+        
+        createGround(width, height) {
+            const totalWidth = width * (this.blockSize + this.roadWidth);
+            const totalHeight = height * (this.blockSize + this.roadWidth);
+            
+            const geometry = new THREE.PlaneGeometry(totalWidth, totalHeight);
+            const material = new THREE.MeshLambertMaterial({ color: 0x1A5E1A });
+            
+            const ground = new THREE.Mesh(geometry, material);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = 0;
+            ground.receiveShadow = true;
+            
+            return ground;
+        }
+        
+        createSkyscraper(x, z) {
+            const width = this.blockSize * 0.8;
+            const depth = this.blockSize * 0.8;
+            const height = 25 + Math.random() * 30; // Random height between 15-45
+            
+            const geometry = new THREE.BoxGeometry(width, height, depth);
+            
+            // Create windows texture
+            const material = new THREE.MeshLambertMaterial({ color: 0x444444 });
+            
+            const building = new THREE.Mesh(geometry, material);
+            building.position.set(x, height / 2, z);
+            building.castShadow = true;
+            building.receiveShadow = true;
+            
+            this.scene.add(building);
+            this.buildings.push(building);
+            
+            // Add details - top section for some skyscrapers
+            if (Math.random() > 0.5) {
+                const topWidth = width * 0.6;
+                const topDepth = depth * 0.6;
+                const topHeight = height * 0.2;
+                
+                const topGeometry = new THREE.BoxGeometry(topWidth, topHeight, topDepth);
+                const topMaterial = new THREE.MeshLambertMaterial({ color: 0x666666 });
+                
+                const top = new THREE.Mesh(topGeometry, topMaterial);
+                top.position.set(0, height / 2 + topHeight / 2, 0);
+                building.add(top);
+            }
+            
+            // Register collision with physics system
+            this.physics.registerBuilding(
+                new THREE.Vector3(x, height/2, z),
+                width,
+                depth,
+                height,
+                true,  // destructible
+                building  // Pass the mesh reference
+            );
+
+            return building;
+        }
+        
+        createHouse(x, z) {
+            const width = this.blockSize * 0.7;
+            const depth = this.blockSize * 0.7;
+            const height = 5 + Math.random() * 3; // Random height between 2-5
+            
+            // House base
+            const baseGeometry = new THREE.BoxGeometry(width, height, depth);
+            const baseMaterial = new THREE.MeshLambertMaterial({ 
+                color: new THREE.Color().setHSL(Math.random(), 0.5, 0.5) 
+            });
+            
+            const house = new THREE.Mesh(baseGeometry, baseMaterial);
+            house.position.set(x, height / 2, z);
+            house.castShadow = true;
+            house.receiveShadow = true;
+            
+            this.scene.add(house);
+            this.buildings.push(house);
+            
+            // Roof (triangular prism)
+            const roofHeight = height * 0.5;
+            const roofGeometry = new THREE.ConeGeometry(width * 0.7, roofHeight, 4);
+            const roofMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            
+            const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+            roof.position.set(0, height / 2 + roofHeight / 2, 0);
+            roof.rotation.y = Math.PI / 4; // Rotate to align with house
+            house.add(roof);
+            
+            // Register collision with physics system
+            this.physics.registerBuilding(
+                new THREE.Vector3(x, height/2, z),
+                width,
+                depth,
+                height,
+                true,  // destructible
+                house  // Pass the mesh reference
+            );
+
+            return house;
+        }
+        
+        createPlayerHouse(x, z) {
+            const width = this.blockSize * 1.1;
+            const depth = this.blockSize * 1.1;
+            const height = 10;
+            const house = new THREE.Group();
+            house.position.set(x, 0, z);
+
+            // Main house base
+            const baseGeometry = new THREE.BoxGeometry(width, height, depth);
+            const baseMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const base = new THREE.Mesh(baseGeometry, baseMaterial);
+            base.position.y = height / 2;
+            base.castShadow = true;
+            base.receiveShadow = true;
+            house.add(base);
+
+            // Windows
+            const windowMaterial = new THREE.MeshLambertMaterial({ color: 0x87CEEB });
+            const windowSize = { width: 1.5, height: 4, depth: 0.1 };
+            
+            // Front windows
+            [-3, 3].forEach(xOffset => {
+                const windowMesh = new THREE.Mesh(
+                    new THREE.BoxGeometry(windowSize.width, windowSize.height, windowSize.depth),
+                    windowMaterial
+                );
+                windowMesh.position.set(xOffset, height/1.8, depth/2 + 0.1);
+                house.add(windowMesh);
+            });
+
+            // Door
+            const doorGeometry = new THREE.BoxGeometry(2, 5, 0.2);
+            const doorMaterial = new THREE.MeshLambertMaterial({ color: 0x4A3B22 });
+            const door = new THREE.Mesh(doorGeometry, doorMaterial);
+            door.position.set(0, 1.5, depth/2 + 0.1);
+            house.add(door);
+
+            // Main roof
+            const roofHeight = height * 0.5;
+            const roofGeometry = new THREE.ConeGeometry(width * 0.8, roofHeight, 4);
+            const roofMaterial = new THREE.MeshLambertMaterial({ color: 0x800000 });
+            const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+            roof.position.set(0, height + roofHeight/2, 0);
+            roof.rotation.y = Math.PI / 4;
+            house.add(roof);
+
+            // Side tower
+            const towerWidth = width * 0.4;
+            const towerHeight = height * 1.5;
+            const towerGeometry = new THREE.BoxGeometry(towerWidth, towerHeight, towerWidth);
+            const towerMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const tower = new THREE.Mesh(towerGeometry, towerMaterial);
+            tower.position.set(-width/2 - towerWidth/2, towerHeight/2, -depth/4);
+            house.add(tower);
+
+            // Tower roof
+            const towerRoofGeometry = new THREE.ConeGeometry(towerWidth * 0.8, roofHeight, 4);
+            const towerRoof = new THREE.Mesh(towerRoofGeometry, roofMaterial);
+            towerRoof.position.set(0, towerHeight/2 + roofHeight/2, 0);
+            towerRoof.rotation.y = Math.PI / 4;
+            tower.add(towerRoof);
+
+            // Front porch
+            const porchWidth = width * 0.4;
+            const porchDepth = depth * 0.3;
+            const porchHeight = height * 0.02;
+            const porchGeometry = new THREE.BoxGeometry(porchWidth, porchHeight, porchDepth);
+            const porchMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4522 });
+            const porch = new THREE.Mesh(porchGeometry, porchMaterial);
+            porch.position.set(0, porchHeight/2, depth/2 + porchDepth/2);
+            house.add(porch);
+
+            // Register collision with physics system (make indestructible)
+            this.physics.registerBuilding(
+                new THREE.Vector3(x, height/2, z),
+                width,
+                depth,
+                height,
+                false,  // indestructible
+                house  // Pass the mesh reference
+            );
+
+            return house;
+        }
+        
+        createRoads(width, height) {
+            const roads = [];
+            const totalWidth = width * (this.blockSize + this.roadWidth);
+            const totalHeight = height * (this.blockSize + this.roadWidth);
+            
+            // Create horizontal and vertical roads
+            for (let i = 0; i <= width; i += 3) {
+                const posX = (i - width / 2) * (this.blockSize + this.roadWidth);
+                
+                const roadGeometry = new THREE.PlaneGeometry(this.roadWidth, totalHeight);
+                const roadMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+                
+                const road = new THREE.Mesh(roadGeometry, roadMaterial);
+                road.rotation.x = -Math.PI / 2;
+                road.position.set(posX, 0.01, 0);
+                road.receiveShadow = true;
+                
+                roads.push(road);
+            }
+            
+            for (let i = 0; i <= height; i += 3) {
+                const posZ = (i - height / 2) * (this.blockSize + this.roadWidth);
+                
+                const roadGeometry = new THREE.PlaneGeometry(totalWidth, this.roadWidth);
+                const roadMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+                
+                const road = new THREE.Mesh(roadGeometry, roadMaterial);
+                road.rotation.x = -Math.PI / 2;
+                road.position.set(0, 0.01, posZ);
+                road.receiveShadow = true;
+                
+                roads.push(road);
+            }
+            
+            return roads;
+        }
+    }
+
+    // Add new OtherPlayer class
+    class OtherPlayer {
+        constructor(scene) {
+            this.scene = scene;
+            this.mesh = null;
+        }
+        
+        init() {
+            // Create simplified player mesh for other players
+            const geometry = new THREE.BoxGeometry(1, 2, 0.5);
+            const material = new THREE.MeshLambertMaterial({ color: 0xFF0000 });
+            this.mesh = new THREE.Mesh(geometry, material);
+            this.scene.add(this.mesh);
+        }
+        
+        remove() {
+            this.scene.remove(this.mesh);
+        }
+        
+        updatePosition(position) {
+            this.mesh.position.lerp(position, 0.1);
+        }
+    }
+    </script>
+</body>
+</html>
