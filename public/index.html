@@ -1584,14 +1584,117 @@
             this.nickname = nickname;
             this.mesh = null;
             this.label = null;
-            this.staminaBar = null;
+            this.height = 2;
+            this.legParts = {
+                leftThigh: null,
+                rightThigh: null,
+                leftLeg: null,
+                rightLeg: null
+            };
+            this.armParts = {
+                leftArm: null,
+                rightArm: null
+            };
         }
         
         init() {
-            // Create player mesh
-            const geometry = new THREE.BoxGeometry(1, 2, 0.5);
-            const material = new THREE.MeshLambertMaterial({ color: 0xFF0000 });
-            this.mesh = new THREE.Mesh(geometry, material);
+            // Create bodybuilder character
+            this.mesh = new THREE.Group();
+            
+            // Materials
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xff8866,
+                roughness: 0.5,
+                metalness: 0.1
+            });
+            
+            const detailMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x222222,
+                roughness: 0.5,
+                metalness: 0.1
+            });
+            
+            const muscleMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xff7755,
+                roughness: 0.7,
+                metalness: 0.1
+            });
+            
+            // Helper function for creating blocks
+            const createBox = (width, height, depth, material, x = 0, y = 0, z = 0) => {
+                const geometry = new THREE.BoxGeometry(width, height, depth);
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                return mesh;
+            };
+            
+            // Head
+            const head = createBox(0.6, 0.6, 0.6, bodyMaterial, 0, 1.85, 0);
+            this.mesh.add(head);
+            
+            // Eyes
+            const leftEye = createBox(0.1, 0.1, 0.05, detailMaterial, -0.15, 1.9, -0.325);
+            const rightEye = createBox(0.1, 0.1, 0.05, detailMaterial, 0.15, 1.9, -0.325);
+            this.mesh.add(leftEye, rightEye);
+            
+            // Torso
+            const torso = createBox(1.1, 0.9, 0.6, muscleMaterial, 0, 1.05, 0);
+            this.mesh.add(torso);
+            
+            // Abs
+            const upperAbs = createBox(0.6, 0.15, 0.05, detailMaterial, 0, 1.15, -0.325);
+            const lowerAbs = createBox(0.6, 0.15, 0.05, detailMaterial, 0, 0.95, -0.325);
+            this.mesh.add(upperAbs, lowerAbs);
+            
+            // Belt
+            const belt = createBox(1.1, 0.15, 0.65, detailMaterial, 0, 0.525, 0);
+            this.mesh.add(belt);
+            
+            // Arms
+            const leftShoulder = createBox(0.4, 0.4, 0.4, bodyMaterial, -0.75, 1.3, 0);
+            const rightShoulder = createBox(0.4, 0.4, 0.4, bodyMaterial, 0.75, 1.3, 0);
+            const leftUpperArm = createBox(0.35, 0.5, 0.35, muscleMaterial, -0.75, 0.85, 0);
+            const rightUpperArm = createBox(0.35, 0.5, 0.35, muscleMaterial, 0.75, 0.85, 0);
+            const leftForearm = createBox(0.3, 0.5, 0.3, bodyMaterial, -0.75, 0.35, 0);
+            const rightForearm = createBox(0.3, 0.5, 0.3, bodyMaterial, 0.75, 0.35, 0);
+            
+            // Create arm groups
+            const leftArm = new THREE.Group();
+            leftArm.add(leftShoulder);
+            leftArm.add(leftUpperArm);
+            leftArm.add(leftForearm);
+            
+            const rightArm = new THREE.Group();
+            rightArm.add(rightShoulder);
+            rightArm.add(rightUpperArm);
+            rightArm.add(rightForearm);
+            
+            this.mesh.add(leftArm);
+            this.mesh.add(rightArm);
+            
+            this.armParts.leftArm = leftArm;
+            this.armParts.rightArm = rightArm;
+            
+            // Legs
+            const leftThigh = createBox(0.4, 0.6, 0.4, muscleMaterial, -0.3, -0.15, 0);
+            const rightThigh = createBox(0.4, 0.6, 0.4, muscleMaterial, 0.3, -0.15, 0);
+            const leftLeg = createBox(0.35, 0.55, 0.35, bodyMaterial, -0.3, -0.75, 0);
+            const rightLeg = createBox(0.35, 0.55, 0.35, bodyMaterial, 0.3, -0.75, 0);
+            const leftFoot = createBox(0.4, 0.15, 0.5, detailMaterial, -0.3, -1.1, 0.05);
+            const rightFoot = createBox(0.4, 0.15, 0.5, detailMaterial, 0.3, -1.1, 0.05);
+            this.mesh.add(leftThigh, rightThigh, leftLeg, rightLeg, leftFoot, rightFoot);
+            
+            // Store leg references
+            this.legParts.leftThigh = leftThigh;
+            this.legParts.rightThigh = rightThigh;
+            this.legParts.leftLeg = leftLeg;
+            this.legParts.rightLeg = rightLeg;
+
+            // Position and rotate the character
+            this.mesh.position.set(0, this.height / 2, 0);
+            this.mesh.rotation.y = Math.PI;  // Face forward
+            this.mesh.castShadow = true;
             this.scene.add(this.mesh);
 
             // Create player label
@@ -1600,18 +1703,47 @@
             canvas.width = 256;
             canvas.height = 64;
 
-            // Create label texture
             const texture = new THREE.CanvasTexture(canvas);
             const labelMaterial = new THREE.SpriteMaterial({ map: texture });
             this.label = new THREE.Sprite(labelMaterial);
             this.label.scale.set(2, 0.5, 1);
             this.mesh.add(this.label);
-            this.label.position.y = 2.5; // Position above player
+            this.label.position.y = 2.5;
 
-            // Update label texture
-            this.updateLabel(100); // Initial stamina value
+            this.updateLabel(100);
+        }
 
+        updatePosition(position) {
+            // Smoothly move to new position
+            this.mesh.position.lerp(position, 0.1);
             
+            // Animate legs when moving
+            if (this.lastPosition) {
+                const movement = new THREE.Vector3().subVectors(position, this.lastPosition);
+                if (movement.length() > 0.01) {
+                    this.animateLegs();
+                } else {
+                    this.resetLegs();
+                }
+            }
+            this.lastPosition = position.clone();
+        }
+
+        animateLegs() {
+            const time = Date.now() * 0.005;
+            const swingAngle = Math.sin(time) * 0.5;
+            
+            this.legParts.leftThigh.rotation.x = -swingAngle;
+            this.legParts.rightThigh.rotation.x = swingAngle;
+            this.legParts.leftLeg.rotation.x = Math.max(0, swingAngle);
+            this.legParts.rightLeg.rotation.x = Math.max(0, -swingAngle);
+        }
+
+        resetLegs() {
+            this.legParts.leftThigh.rotation.x = 0;
+            this.legParts.rightThigh.rotation.x = 0;
+            this.legParts.leftLeg.rotation.x = 0;
+            this.legParts.rightLeg.rotation.x = 0;
         }
 
         updateLabel(stamina) {
@@ -1648,10 +1780,6 @@
 
         remove() {
             this.scene.remove(this.mesh);
-        }
-
-        updatePosition(position) {
-            this.mesh.position.lerp(position, 0.1);
         }
     }
     </script>
