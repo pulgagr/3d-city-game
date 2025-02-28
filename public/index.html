@@ -135,6 +135,70 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
+    // Add Audio Manager class before the Application class
+    class AudioManager {
+        constructor() {
+            this.sounds = {
+                backgroundMusic: {
+                    path: 'sounds/the-city-is-waking-up.wav',
+                    audio: null
+                },
+                punch: {
+                    path: 'sounds/8-bit-slam.mp3',
+                    audio: null
+                },
+                explosion: {
+                    path: 'sounds/small-explode-blast.wav',
+                    audio: null
+                }
+            };
+
+            // Initialize all sounds
+            this.initializeSounds();
+        }
+
+        initializeSounds() {
+            for (const [key, sound] of Object.entries(this.sounds)) {
+                sound.audio = new Audio(sound.path);
+                sound.audio.addEventListener('error', (e) => {
+                    console.error(`Error loading ${key} sound file from ${sound.path}:`, e);
+                });
+
+                // Preload sounds
+                sound.audio.load();
+            }
+
+            // Set up background music to loop
+            this.sounds.backgroundMusic.audio.loop = true;
+        }
+
+        startBackgroundMusic() {
+            const music = this.sounds.backgroundMusic.audio;
+            music.play().catch(error => {
+                console.log("Background music playback failed:", error);
+                console.log("Make sure the file exists at:", this.sounds.backgroundMusic.path);
+            });
+        }
+
+        playPunchSound() {
+            const punch = this.sounds.punch.audio;
+            punch.currentTime = 0;
+            punch.play().catch(error => {
+                console.log("Punch sound playback failed:", error);
+                console.log("Make sure the file exists at:", this.sounds.punch.path);
+            });
+        }
+
+        playExplosionSound() {
+            const explosion = this.sounds.explosion.audio;
+            explosion.currentTime = 0;
+            explosion.play().catch(error => {
+                console.log("Explosion sound playback failed:", error);
+                console.log("Make sure the file exists at:", this.sounds.explosion.path);
+            });
+        }
+    }
+
     let app = null;
 
     // Add global startGame function
@@ -201,10 +265,16 @@
             
             // Add nickname property
             this.nickname = '';
+
+            // Add audio manager
+            this.audio = new AudioManager();
         }
         
         start(nickname) {
             this.nickname = nickname;
+            
+            // Start background music when game starts
+            this.audio.startBackgroundMusic();
             
             // Connect to server first
             this.connectToServer();
@@ -290,6 +360,7 @@
                     if (explodedPlayer) {
                         this.physics.createPlayerExplosion(explodedPlayer.mesh.position);
                         explodedPlayer.mesh.visible = false;
+                        this.audio.playExplosionSound(); // Play explosion sound
                         setTimeout(() => {
                             explodedPlayer.mesh.visible = true;
                             explodedPlayer.mesh.position.set(-50, 2, -45);
@@ -1190,6 +1261,7 @@
             if (this.currentStamina <= 0) {
                 // Create explosion effect
                 this.physics.createPlayerExplosion(this.mesh.position);
+                app.audio.playExplosionSound(); // Play explosion sound
                 
                 // Hide player briefly
                 this.mesh.visible = false;
@@ -1256,6 +1328,7 @@
                     this.currentStamina = Math.max(0, this.currentStamina - this.punchStaminaCost);
                     this.staminaRegenTimer = this.staminaRegenDelay;
                     this.updateStaminaBar();
+                    app.audio.playPunchSound(); // Play punch sound
                 }
             }
         }
