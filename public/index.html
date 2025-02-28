@@ -412,7 +412,7 @@
             this.city = new CityGenerator(this.scene, this.physics);
             this.city.generate(30, 30); // Doubled from 15x15 to 30x30
             
-            this.player = new Player(this.scene, this.physics);
+            this.player = new Player(this.scene, this.physics, this.nickname);
             this.player.init();
             this.player.mesh.position.set(-50, this.player.height/2, -45);
             
@@ -634,6 +634,9 @@
                     break;
                 case 'KeyE':
                     this.keys.punch = true;
+                    if (app && app.audio) {
+                        app.audio.playPunchSound(); // Play sound immediately on key press
+                    }
                     break;
             }
         }
@@ -978,9 +981,10 @@
 
     // Player class
     class Player {
-        constructor(scene, physics) {
+        constructor(scene, physics, nickname) {
             this.scene = scene;
             this.physics = physics;
+            this.nickname = nickname; // Store nickname
             
             // Player properties
             this.mesh = null;
@@ -1328,7 +1332,7 @@
                     this.currentStamina = Math.max(0, this.currentStamina - this.punchStaminaCost);
                     this.staminaRegenTimer = this.staminaRegenDelay;
                     this.updateStaminaBar();
-                    app.audio.playPunchSound(); // Play punch sound
+                    
                 }
             }
         }
