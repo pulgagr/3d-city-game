@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>3D City Game</title>
     <style>
         body { 
@@ -119,6 +121,114 @@
         #loginForm button:hover {
             background-color: #45a049;
         }
+
+        /* Mobile Controls */
+        #mobileControls {
+            display: none; /* Hidden by default, shown on mobile */
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 100;
+            touch-action: none;
+            pointer-events: none; /* Let clicks pass through to the game */
+        }
+        
+        .joystick-container {
+            position: absolute;
+            width: 130px;
+            height: 130px;
+            background-color: rgba(0,0,0,0.3);
+            border: 2px solid rgba(255,255,255,0.5);
+            border-radius: 65px;
+            pointer-events: auto; /* Make joysticks clickable */
+        }
+        
+        #moveJoystick {
+            left: 20px;
+            bottom: 20px;
+        }
+        
+        #lookJoystick {
+            right: 20px;
+            bottom: 20px;
+        }
+        
+        .joystick-thumb {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background-color: rgba(255,255,255,0.7);
+            border: 2px solid rgba(0,0,0,0.3);
+            border-radius: 30px;
+            top: 35px;
+            left: 35px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        
+        .mobile-button {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            background-color: rgba(255,255,255,0.5);
+            border: 2px solid rgba(0,0,0,0.3);
+            border-radius: 35px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+            font-weight: bold;
+            font-size: 16px;
+            text-shadow: 0 1px 1px rgba(255,255,255,0.7);
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+            pointer-events: auto; /* Make buttons clickable */
+        }
+        
+        #jumpButton {
+            bottom: 120px;
+            right: 100px;
+            background-color: rgba(100, 200, 255, 0.6);
+        }
+        
+        #punchButton {
+            bottom: 30px;
+            right: 170px;
+            background-color: rgba(255, 100, 100, 0.6);
+        }
+        
+        #runButton {
+            bottom: 210px;
+            right: 30px;
+            background-color: rgba(100, 255, 100, 0.6);
+        }
+        
+        #overviewButton {
+            bottom: 170px;
+            left: 30px;
+            background-color: rgba(255, 200, 100, 0.6);
+        }
+        
+        /* Button active state */
+        .mobile-button:active {
+            background-color: rgba(255,255,255,0.8);
+            transform: scale(0.95);
+        }
+        
+        @media (max-width: 768px) {
+            #controls {
+                display: none; /* Hide keyboard controls info on mobile */
+            }
+            
+            #mobileControls {
+                display: block; /* Show mobile controls on small screens */
+            }
+            
+            #info, #stamina {
+                font-size: 14px; /* Slightly smaller UI text on mobile */
+                padding: 5px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -146,6 +256,22 @@
     </div>
     <div id="playersOnline">Players online: 1</div>
     <div id="message">Stamina too low!</div>
+
+    <!-- Mobile Controls -->
+    <div id="mobileControls">
+        <div id="moveJoystick" class="joystick-container">
+            <div class="joystick-thumb"></div>
+            <div style="position: absolute; bottom: -25px; width: 100%; text-align: center; color: white; font-weight: bold; text-shadow: 0 0 3px black;">MOVE</div>
+        </div>
+        <div id="lookJoystick" class="joystick-container">
+            <div class="joystick-thumb"></div>
+            <div style="position: absolute; bottom: -25px; width: 100%; text-align: center; color: white; font-weight: bold; text-shadow: 0 0 3px black;">LOOK</div>
+        </div>
+        <div id="jumpButton" class="mobile-button">JUMP</div>
+        <div id="punchButton" class="mobile-button">PUNCH</div>
+        <div id="runButton" class="mobile-button">RUN</div>
+        <div id="overviewButton" class="mobile-button">OVERVIEW</div>
+    </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
@@ -663,9 +789,171 @@
                 punch: false
             };
             
-            // Set up event listeners
+            // Set up event listeners for keyboard
             document.addEventListener('keydown', (e) => this.onKeyDown(e));
             document.addEventListener('keyup', (e) => this.onKeyUp(e));
+            
+            // Setup mobile controls
+            this.setupMobileControls();
+            
+            // Initialize joystick variables
+            this.moveJoystickActive = false;
+            this.lookJoystickActive = false;
+            this.moveJoystickData = { x: 0, y: 0 };
+            this.lookJoystickData = { x: 0, y: 0 };
+        }
+        
+        setupMobileControls() {
+            // Get mobile control elements
+            this.moveJoystick = document.getElementById('moveJoystick');
+            this.lookJoystick = document.getElementById('lookJoystick');
+            this.moveJoystickThumb = this.moveJoystick.querySelector('.joystick-thumb');
+            this.lookJoystickThumb = this.lookJoystick.querySelector('.joystick-thumb');
+            this.jumpButton = document.getElementById('jumpButton');
+            this.punchButton = document.getElementById('punchButton');
+            this.runButton = document.getElementById('runButton');
+            this.overviewButton = document.getElementById('overviewButton');
+            
+            // Set up touch event handlers for move joystick
+            this.moveJoystick.addEventListener('touchstart', (e) => this.onMoveJoystickStart(e));
+            this.moveJoystick.addEventListener('touchmove', (e) => this.onMoveJoystickMove(e));
+            this.moveJoystick.addEventListener('touchend', (e) => this.onMoveJoystickEnd(e));
+            
+            // Set up touch event handlers for look joystick
+            this.lookJoystick.addEventListener('touchstart', (e) => this.onLookJoystickStart(e));
+            this.lookJoystick.addEventListener('touchmove', (e) => this.onLookJoystickMove(e));
+            this.lookJoystick.addEventListener('touchend', (e) => this.onLookJoystickEnd(e));
+            
+            // Set up touch event handlers for buttons
+            this.jumpButton.addEventListener('touchstart', (e) => { this.keys.jump = true; e.preventDefault(); });
+            this.jumpButton.addEventListener('touchend', (e) => { this.keys.jump = false; e.preventDefault(); });
+            
+            this.punchButton.addEventListener('touchstart', (e) => { 
+                this.keys.punch = true; 
+                if (app && app.audio) {
+                    app.audio.playPunchSound();
+                }
+                e.preventDefault();
+            });
+            this.punchButton.addEventListener('touchend', (e) => { this.keys.punch = false; e.preventDefault(); });
+            
+            this.runButton.addEventListener('touchstart', (e) => { this.keys.run = true; e.preventDefault(); });
+            this.runButton.addEventListener('touchend', (e) => { this.keys.run = false; e.preventDefault(); });
+            
+            this.overviewButton.addEventListener('touchstart', (e) => { this.keys.overview = true; e.preventDefault(); });
+            this.overviewButton.addEventListener('touchend', (e) => { this.keys.overview = false; e.preventDefault(); });
+        }
+        
+        onMoveJoystickStart(e) {
+            e.preventDefault();
+            this.moveJoystickActive = true;
+            this.onMoveJoystickMove(e);
+        }
+        
+        onMoveJoystickMove(e) {
+            if (!this.moveJoystickActive) return;
+            e.preventDefault();
+            
+            const touch = e.touches[0];
+            const joystickRect = this.moveJoystick.getBoundingClientRect();
+            const centerX = joystickRect.left + joystickRect.width / 2;
+            const centerY = joystickRect.top + joystickRect.height / 2;
+            
+            // Calculate joystick position relative to center
+            let dx = touch.clientX - centerX;
+            let dy = touch.clientY - centerY;
+            
+            // Calculate distance from center
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const maxDistance = joystickRect.width / 2 - 25; // Account for thumb size
+            
+            // Normalize if distance exceeds max
+            if (distance > maxDistance) {
+                dx = dx * maxDistance / distance;
+                dy = dy * maxDistance / distance;
+            }
+            
+            // Update thumb position
+            this.moveJoystickThumb.style.transform = `translate(${dx}px, ${dy}px)`;
+            
+            // Calculate and store normalized values (-1 to 1)
+            this.moveJoystickData.x = dx / maxDistance;
+            this.moveJoystickData.y = dy / maxDistance;
+            
+            // Set movement keys based on joystick position
+            this.keys.left = this.moveJoystickData.x < -0.2;
+            this.keys.right = this.moveJoystickData.x > 0.2;
+            this.keys.forward = this.moveJoystickData.y < -0.2;
+            this.keys.backward = this.moveJoystickData.y > 0.2;
+        }
+        
+        onMoveJoystickEnd(e) {
+            e.preventDefault();
+            this.moveJoystickActive = false;
+            this.moveJoystickThumb.style.transform = 'translate(0px, 0px)';
+            this.moveJoystickData = { x: 0, y: 0 };
+            
+            // Reset movement keys
+            this.keys.left = false;
+            this.keys.right = false;
+            this.keys.forward = false;
+            this.keys.backward = false;
+        }
+        
+        onLookJoystickStart(e) {
+            e.preventDefault();
+            this.lookJoystickActive = true;
+            this.onLookJoystickMove(e);
+        }
+        
+        onLookJoystickMove(e) {
+            if (!this.lookJoystickActive) return;
+            e.preventDefault();
+            
+            const touch = e.touches[0];
+            const joystickRect = this.lookJoystick.getBoundingClientRect();
+            const centerX = joystickRect.left + joystickRect.width / 2;
+            const centerY = joystickRect.top + joystickRect.height / 2;
+            
+            // Calculate joystick position relative to center
+            let dx = touch.clientX - centerX;
+            let dy = touch.clientY - centerY;
+            
+            // Calculate distance from center
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const maxDistance = joystickRect.width / 2 - 25; // Account for thumb size
+            
+            // Normalize if distance exceeds max
+            if (distance > maxDistance) {
+                dx = dx * maxDistance / distance;
+                dy = dy * maxDistance / distance;
+            }
+            
+            // Update thumb position
+            this.lookJoystickThumb.style.transform = `translate(${dx}px, ${dy}px)`;
+            
+            // Calculate and store normalized values (-1 to 1)
+            this.lookJoystickData.x = dx / maxDistance;
+            this.lookJoystickData.y = dy / maxDistance;
+            
+            // Set look keys based on joystick position
+            this.keys.lookLeft = this.lookJoystickData.x < -0.2;
+            this.keys.lookRight = this.lookJoystickData.x > 0.2;
+            this.keys.lookUp = this.lookJoystickData.y < -0.2;
+            this.keys.lookDown = this.lookJoystickData.y > 0.2;
+        }
+        
+        onLookJoystickEnd(e) {
+            e.preventDefault();
+            this.lookJoystickActive = false;
+            this.lookJoystickThumb.style.transform = 'translate(0px, 0px)';
+            this.lookJoystickData = { x: 0, y: 0 };
+            
+            // Reset look keys
+            this.keys.lookLeft = false;
+            this.keys.lookRight = false;
+            this.keys.lookUp = false;
+            this.keys.lookDown = false;
         }
         
         onKeyDown(event) {
