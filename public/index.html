@@ -53,6 +53,19 @@
             background-color: #ff3333;
             transition: width 0.3s;
         }
+        #playersOnline {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            background-color: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            min-width: 150px;
+        }
         #message {
             position: absolute;
             top: 50%;
@@ -131,6 +144,7 @@
             <div id="staminaFill"></div>
         </div>
     </div>
+    <div id="playersOnline">Players online: 1</div>
     <div id="message">Stamina too low!</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -323,14 +337,17 @@
                             this.createOtherPlayer(player);
                         }
                     });
+                    this.updatePlayerCount();
                     break;
                     
                 case 'playerJoined':
                     this.createOtherPlayer(data.player);
+                    this.updatePlayerCount();
                     break;
                     
                 case 'playerLeft':
                     this.removeOtherPlayer(data.id);
+                    this.updatePlayerCount();
                     break;
                     
                 case 'playerMoved':
@@ -384,6 +401,12 @@
                 player.remove();
                 this.otherPlayers.delete(id);
             }
+        }
+        
+        updatePlayerCount() {
+            // Count includes current player plus other players
+            const count = 1 + this.otherPlayers.size;
+            document.getElementById('playersOnline').textContent = `Players online: ${count}`;
         }
         
         updateOtherPlayer(id, position) {
