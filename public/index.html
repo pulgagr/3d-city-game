@@ -188,28 +188,34 @@
 
         startBackgroundMusic() {
             const music = this.sounds.backgroundMusic.audio;
-            music.play().catch(error => {
-                console.log("Background music playback failed:", error);
-                console.log("Make sure the file exists at:", this.sounds.backgroundMusic.path);
-            });
+            if (music) {
+                music.play().catch(error => {
+                    console.log("Background music playback failed:", error);
+                    console.log("Make sure the file exists at:", this.sounds.backgroundMusic.path);
+                });
+            }
         }
 
         playPunchSound() {
             const punch = this.sounds.punch.audio;
-            punch.currentTime = 0;
-            punch.play().catch(error => {
-                console.log("Punch sound playback failed:", error);
-                console.log("Make sure the file exists at:", this.sounds.punch.path);
-            });
+            if (punch) {
+                punch.currentTime = 0;
+                punch.play().catch(error => {
+                    console.log("Punch sound playback failed:", error);
+                    console.log("Make sure the file exists at:", this.sounds.punch.path);
+                });
+            }
         }
 
         playExplosionSound() {
             const explosion = this.sounds.explosion.audio;
-            explosion.currentTime = 0;
-            explosion.play().catch(error => {
-                console.log("Explosion sound playback failed:", error);
-                console.log("Make sure the file exists at:", this.sounds.explosion.path);
-            });
+            if (explosion) {
+                explosion.currentTime = 0;
+                explosion.play().catch(error => {
+                    console.log("Explosion sound playback failed:", error);
+                    console.log("Make sure the file exists at:", this.sounds.explosion.path);
+                });
+            }
         }
     }
 
@@ -363,26 +369,69 @@
                     break;
                     
                 case 'playerHit':
-                    if (data.targetId === this.playerId) {
-                        this.player.takeDamage();
+                    // If this client is the one being hit
+                    if (data.hitPlayerId === this.playerId) {
+                        // Play punch sound for the player being hit
+                        if (this.audio) {
+                            this.audio.playPunchSound();
+                        }
+                        
+                        // Update player stamina
+                        this.player.currentStamina = Math.max(0, this.player.currentStamina - 20);
+                        this.player.updateStaminaBar();
+                        
+                        // Check if player is out of stamina
+                        if (this.player.currentStamina <= 0) {
+                            // Player will explode via server message
+                        }
                     }
-                    const hitPlayer = this.otherPlayers.get(data.targetId);
-                    if (hitPlayer) {
-                        hitPlayer.updateLabel(data.newStamina);
+                    // If this is just a notification about other players
+                    else if (data.targetId && this.otherPlayers.has(data.targetId)) {
+                        const targetPlayer = this.otherPlayers.get(data.targetId);
+                        targetPlayer.updateLabel(data.newStamina * 20); // Convert server stamina (0-5) to display stamina (0-100)
                     }
                     break;
                     
                 case 'playerExploded':
-                    const explodedPlayer = this.otherPlayers.get(data.playerId);
-                    if (explodedPlayer) {
-                        this.physics.createPlayerExplosion(explodedPlayer.mesh.position);
-                        explodedPlayer.mesh.visible = false;
-                        this.audio.playExplosionSound(); // Play explosion sound
+                    // If this client is the one that exploded
+                    if (data.playerId === this.playerId) {
+                        // Create explosion effect
+                        this.physics.createPlayerExplosion(this.player.mesh.position);
+                        
+                        // Play explosion sound
+                        if (this.audio) {
+                            this.audio.playExplosionSound();
+                        }
+                        
+                        // Hide player briefly
+                        this.player.mesh.visible = false;
+                        
+                        // Reset position and stamina after a short delay
                         setTimeout(() => {
-                            explodedPlayer.mesh.visible = true;
-                            explodedPlayer.mesh.position.set(-50, 2, -45);
-                            explodedPlayer.updateLabel(100);
+                            this.player.mesh.position.set(-50, this.player.height/2, -45);
+                            this.player.currentStamina = this.player.maxStamina;
+                            this.player.updateStaminaBar();
+                            this.player.mesh.visible = true;
                         }, 1000);
+                    }
+                    // If another player exploded
+                    else {
+                        const explodedPlayer = this.otherPlayers.get(data.playerId);
+                        if (explodedPlayer) {
+                            this.physics.createPlayerExplosion(explodedPlayer.mesh.position);
+                            explodedPlayer.mesh.visible = false;
+                            
+                            // Play explosion sound
+                            if (this.audio) {
+                                this.audio.playExplosionSound();
+                            }
+                            
+                            setTimeout(() => {
+                                explodedPlayer.mesh.visible = true;
+                                explodedPlayer.mesh.position.set(-50, 2, -45);
+                                explodedPlayer.updateLabel(100);
+                            }, 1000);
+                        }
                     }
                     break;
             }
@@ -826,26 +875,34 @@
             return false;
         }
         
-        checkPlayerPunchCollision(punchPosition, range, punchingPlayerId) {
-            // Check all players for collision with punch
+        checkPlayerPunchCollision(position, range, excludePlayerId) {
+            // Check collision with other players
+            let hit = false;
             for (const [id, player] of app.otherPlayers) {
-                if (id === punchingPlayerId) continue; // Skip punching player
-
-                const playerPos = player.mesh.position;
-                const dx = Math.abs(punchPosition.x - playerPos.x);
-                const dz = Math.abs(punchPosition.z - playerPos.z);
-                const dy = Math.abs(punchPosition.y - playerPos.y);
-
-                if (dx < 1.5 && dz < 1.5 && dy < 2) {
-                    // Hit detected
-                    app.socket.send(JSON.stringify({
-                        type: 'playerHit',
-                        targetId: id
-                    }));
-                    return true;
+                if (id !== excludePlayerId) {
+                    const playerPos = player.mesh.position.clone();
+                    playerPos.y += 1; // Aim for center of player
+                    const distance = position.distanceTo(playerPos);
+                    
+                    if (distance < range + 0.5) { // Hit range + some margin
+                        hit = true;
+                        
+                        // Send hit message to server
+                        if (app.socket && app.socket.readyState === WebSocket.OPEN) {
+                            app.socket.send(JSON.stringify({
+                                type: 'playerHit',
+                                hitPlayerId: id
+                            }));
+                        }
+                        
+                        // Play punch sound locally for the attacker
+                        if (app.audio) {
+                            app.audio.playPunchSound();
+                        }
+                    }
                 }
             }
-            return false;
+            return hit;
         }
         
         update(deltaTime) {
@@ -1288,7 +1345,9 @@
             if (this.currentStamina <= 0) {
                 // Create explosion effect
                 this.physics.createPlayerExplosion(this.mesh.position);
-                app.audio.playExplosionSound(); // Play explosion sound
+                if (app.audio) {
+                    app.audio.playExplosionSound(); // Play explosion sound
+                }
                 
                 // Hide player briefly
                 this.mesh.visible = false;
@@ -1355,7 +1414,9 @@
                     this.currentStamina = Math.max(0, this.currentStamina - this.punchStaminaCost);
                     this.staminaRegenTimer = this.staminaRegenDelay;
                     this.updateStaminaBar();
-                    
+                    if (app.audio) {
+                        app.audio.playPunchSound(); // Play punch sound
+                    }
                 }
             }
         }

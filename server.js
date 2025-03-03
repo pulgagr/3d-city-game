@@ -80,18 +80,34 @@ wss.on('connection', (socket, req) => {
                     break;
 
                 case 'playerHit':
-                    const targetSocket = Array.from(clients.entries())
-                        .find(([_, p]) => p.id === data.targetId)?.[0];
+                    // Find the player who was hit
+                    const hitPlayerEntry = Array.from(clients.entries())
+                        .find(([_, p]) => p.id === data.hitPlayerId);
                     
-                    if (targetSocket) {
-                        const targetPlayer = clients.get(targetSocket);
-                        targetPlayer.stamina--;
+                    if (hitPlayerEntry) {
+                        const [hitSocket, hitPlayer] = hitPlayerEntry;
+                        // Reduce stamina
+                        hitPlayer.stamina = Math.max(0, hitPlayer.stamina - 1);
                         
+                        // Broadcast hit to all players
                         broadcast({
                             type: 'playerHit',
-                            targetId: data.targetId,
-                            newStamina: (targetPlayer.stamina / 5) * 100
+                            hitPlayerId: data.hitPlayerId,
+                            targetId: data.hitPlayerId,
+                            newStamina: hitPlayer.stamina
                         });
+                        
+                        // Check if player is now out of stamina
+                        if (hitPlayer.stamina <= 0) {
+                            // Reset stamina
+                            hitPlayer.stamina = 5;
+                            
+                            // Broadcast explosion
+                            broadcast({
+                                type: 'playerExploded',
+                                playerId: data.hitPlayerId
+                            });
+                        }
                     }
                     break;
                     
